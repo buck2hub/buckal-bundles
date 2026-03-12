@@ -8,18 +8,20 @@ from pathlib import Path
 from tomllib import load
 from typing import IO, NamedTuple
 
-# this is the current buck2 project root
+# This is the current buck2 project root
 TOOL_CWD: str = os.path.join(os.getcwd(), "")
 
 
 class Args(NamedTuple):
     vendor: Path
+    workspace: Path
     out_dict: IO[str]
     out_flags: IO[str]
 
 def arg_parse() -> Args:
-    parser = argparse.ArgumentParser(description="Run Rust build script")
+    parser = argparse.ArgumentParser(description="Parse Cargo manifest")
     parser.add_argument("--vendor", type=Path, required=True)
+    parser.add_argument("--workspace", type=Path)
     # Always write UTF-8 so rustc_action (the Buck2 Rust toolchain action,
     # which assumes UTF-8 response files) can parse the generated files on
     # Windows, where the locale default is typically cp1252.
@@ -31,8 +33,6 @@ def arg_parse() -> Args:
 def main() -> None:
     args = arg_parse()
 
-    # raise EOFError(f"Debug: TOOL_CWD={TOOL_CWD}")
-
     cargo_env = {}
     with (args.vendor / "Cargo.toml").open("rb") as f:
         cargo_toml = load(f)
@@ -40,12 +40,47 @@ def main() -> None:
     cargo_env["CARGO_MANIFEST_DIR"] = str(TOOL_CWD / args.vendor)
     cargo_env["CARGO_MANIFEST_PATH"] = str(TOOL_CWD / args.vendor / "Cargo.toml")
 
+    cargo_package = cargo_toml.get("package")
+    if not cargo_package:
+        raise ValueError("Cargo.toml missing [package] section")
+    
+    workspace_package = {}
+
+    def load_workspace_package() -> dict:
+        nonlocal workspace_package
+        if workspace_package:
+            return workspace_package
+        if not args.workspace:
+            raise ValueError("Workspace reference specified but no workspace manifest path provided")
+        with args.workspace.open("rb") as f:
+            workspace_cargo_toml = load(f)
+        workspace_package = workspace_cargo_toml.get("workspace", {}).get("package")
+        if not workspace_package:
+            raise ValueError("Workspace Cargo.toml missing [workspace.package] section")
+        return workspace_package
+
+    # Handle keys that may inherit from the workspace
+    # See https://doc.rust-lang.org/cargo/reference/workspaces.html#the-package-table
+    workspace_package_key = {
+        "version",
+        "authors",
+        "description",
+        "homepage",
+        "repository",
+        "rust-version",
+    }
+    for key in workspace_package_key:
+        value = cargo_package.get(key)
+        if isinstance(value, dict) and value.get("workspace") is True:
+            workspace_values = load_workspace_package()
+            cargo_package[key] = workspace_values.get(key)       
+
     # Parse semantic versioning
     semver_pattern = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$")
 
-    cargo_env["CARGO_PKG_VERSION"] = cargo_toml["package"]["version"]
+    cargo_env["CARGO_PKG_VERSION"] = cargo_package["version"]
 
-    semver_match = semver_pattern.match(cargo_toml["package"]["version"])
+    semver_match = semver_pattern.match(cargo_package["version"])
     if semver_match:
         major, minor, patch, pre, build = semver_match.groups()
         cargo_env["CARGO_PKG_VERSION_MAJOR"] = major
@@ -53,15 +88,12 @@ def main() -> None:
         cargo_env["CARGO_PKG_VERSION_PATCH"] = patch
         cargo_env["CARGO_PKG_VERSION_PRE"] = pre if pre else ""
 
-    cargo_env["CARGO_PKG_AUTHORS"] = ":".join(cargo_toml["package"].get("authors", []))
-    cargo_env["CARGO_PKG_NAME"] = cargo_toml["package"]["name"]
-    cargo_env["CARGO_PKG_DESCRIPTION"] = cargo_toml["package"].get("description", "")
-    cargo_env["CARGO_PKG_HOMEPAGE"] = cargo_toml["package"].get("homepage", "")
-    cargo_env["CARGO_PKG_REPOSITORY"] = cargo_toml["package"].get("repository", "")
-    # cargo_env["CARGO_PKG_LICENSE"] = cargo_toml["package"].get("license", "")
-    # cargo_env["CARGO_PKG_LICENSE_FILE"] = cargo_toml["package"].get("license-file", "")
-    cargo_env["CARGO_PKG_RUST_VERSION"] = cargo_toml["package"].get("rust-version", "")
-    # cargo_env["CARGO_PKG_README"] = cargo_toml["package"].get("readme", "")
+    cargo_env["CARGO_PKG_AUTHORS"] = ":".join(cargo_package.get("authors", []))
+    cargo_env["CARGO_PKG_NAME"] = cargo_package["name"]
+    cargo_env["CARGO_PKG_DESCRIPTION"] = cargo_package.get("description", "")
+    cargo_env["CARGO_PKG_HOMEPAGE"] = cargo_package.get("homepage", "")
+    cargo_env["CARGO_PKG_REPOSITORY"] = cargo_package.get("repository", "")
+    cargo_env["CARGO_PKG_RUST_VERSION"] = cargo_package.get("rust-version", "")
 
     def to_ascii_escaped(value: str) -> str:
         return value.encode("ascii", "backslashreplace").decode("ascii")
@@ -76,8 +108,8 @@ def main() -> None:
             env_flags += f"--env-set={key}={to_ascii_escaped(value)}\n"
     args.out_flags.write(env_flags)
 
-    if cargo_toml["package"].get("links"):
-        cargo_env["CARGO_MANIFEST_LINKS"] = cargo_toml["package"].get("links")
+    if cargo_package.get("links"):
+        cargo_env["CARGO_MANIFEST_LINKS"] = cargo_package.get("links")
 
     json.dump(cargo_env, args.out_dict, indent=2)
 

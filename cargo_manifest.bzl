@@ -11,6 +11,9 @@ def _cargo_manifest_impl(ctx: AnalysisContext) -> list[Provider]:
         cmd_args("--out-flags=", env_flags.as_output(), delimiter = ""),
     ]
 
+    if ctx.attrs.workspace:
+        cmd.append(cmd_args("--workspace=", ctx.attrs.workspace[DefaultInfo].default_outputs[0], delimiter = ""))
+
     ctx.actions.run(
         cmd,
         category = "cargo_manifest",
@@ -28,6 +31,7 @@ cargo_manifest = rule(
     impl = _cargo_manifest_impl,
     attrs = {
         "vendor": attrs.dep(),
+        "workspace": attrs.option(attrs.dep(), default = None),
         "executor": attrs.default_only(attrs.exec_dep(providers = [RunInfo], default = "buckal//tool:manifest_parse")),
     },
 )
