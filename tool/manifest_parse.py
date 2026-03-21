@@ -68,6 +68,9 @@ def main() -> None:
         "homepage",
         "repository",
         "rust-version",
+        "license",
+        "license-file",
+        "readme",
     }
     for key in workspace_package_key:
         value = cargo_package.get(key)
@@ -94,6 +97,14 @@ def main() -> None:
     cargo_env["CARGO_PKG_HOMEPAGE"] = cargo_package.get("homepage", "")
     cargo_env["CARGO_PKG_REPOSITORY"] = cargo_package.get("repository", "")
     cargo_env["CARGO_PKG_RUST_VERSION"] = cargo_package.get("rust-version", "")
+    cargo_env["CARGO_PKG_LICENSE"] = cargo_package.get("license", "")
+    cargo_env["CARGO_PKG_LICENSE_FILE"] = cargo_package.get("license-file", "")
+    cargo_env["CARGO_PKG_README"] = cargo_package.get("readme", "")
+
+    # Coerce all values to strings (TOML booleans like `readme = true` are common)
+    for key in cargo_env:
+        if not isinstance(cargo_env[key], str):
+            cargo_env[key] = str(cargo_env[key])
 
     def to_ascii_escaped(value: str) -> str:
         return value.encode("ascii", "backslashreplace").decode("ascii")

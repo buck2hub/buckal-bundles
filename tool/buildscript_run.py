@@ -253,6 +253,17 @@ def main() -> None:  # noqa: C901
     # NUM_JOBS is only set to available_parallelism() if not already present,
     # meaning an existing OS-level NUM_JOBS overrides cargo_buildscript.bzl config.
     env.setdefault("NUM_JOBS", str(available_parallelism()))
+    # Standard Cargo build script env vars that buck2 doesn't set by default.
+    # Required by crates like `built` that introspect the build environment.
+    # See: https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-build-scripts
+    if "PROFILE" not in env:
+        opt_level = env.get("OPT_LEVEL", "0")
+        env["PROFILE"] = "release" if opt_level not in ("0", "") else "debug"
+    env.setdefault("RUSTDOC", "rustdoc")
+    env.setdefault("CARGO_PKG_VERSION_MAJOR", "")
+    env.setdefault("CARGO_PKG_VERSION_MINOR", "")
+    env.setdefault("CARGO_PKG_VERSION_PATCH", "")
+    env.setdefault("CARGO_PKG_VERSION_PRE", "")
 
     target = env.get("TARGET")
     if target is None:
