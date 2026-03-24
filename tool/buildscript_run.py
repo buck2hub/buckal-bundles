@@ -243,6 +243,17 @@ def main() -> None:  # noqa: C901
     env["OUT_DIR"] = os.path.abspath(out_dir)
 
     cwd = create_cwd(args.create_cwd, args.manifest_dir)
+
+    # Resolve path env vars to absolute paths, consistent with CARGO_MANIFEST_DIR
+    # and OUT_DIR.  manifest_parse.py emits these relative to the vendor directory
+    # but the synthetic cwd has a different parent-directory structure.
+    orig_manifest_dir = env.get("CARGO_MANIFEST_DIR")
+    if orig_manifest_dir:
+        for key in ("CARGO_PKG_README", "CARGO_PKG_LICENSE_FILE"):
+            val = env.get(key, "")
+            if val and not os.path.isabs(val):
+                env[key] = os.path.normpath(os.path.join(orig_manifest_dir, val))
+
     env["CARGO_MANIFEST_DIR"] = os.path.abspath(cwd)
     # *BUCKAL-ONLY* set manifest path
     env["CARGO_MANIFEST_PATH"] = os.path.abspath(cwd / "Cargo.toml")
