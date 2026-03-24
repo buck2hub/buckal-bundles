@@ -72,11 +72,13 @@ def main() -> None:
         "license-file",
         "readme",
     }
+    inherited_from_workspace = set()
     for key in workspace_package_key:
         value = cargo_package.get(key)
         if isinstance(value, dict) and value.get("workspace") is True:
             workspace_values = load_workspace_package()
-            cargo_package[key] = workspace_values.get(key)       
+            cargo_package[key] = workspace_values.get(key)
+            inherited_from_workspace.add(key)
 
     # Parse semantic versioning
     semver_pattern = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$")
@@ -98,13 +100,28 @@ def main() -> None:
     cargo_env["CARGO_PKG_REPOSITORY"] = cargo_package.get("repository", "")
     cargo_env["CARGO_PKG_RUST_VERSION"] = cargo_package.get("rust-version", "")
     cargo_env["CARGO_PKG_LICENSE"] = cargo_package.get("license", "")
-    cargo_env["CARGO_PKG_LICENSE_FILE"] = cargo_package.get("license-file", "")
-    cargo_env["CARGO_PKG_README"] = cargo_package.get("readme", "")
+    # Cargo interprets `readme = true` as "README.md" and `readme = false` as ""
+    # (see https://doc.rust-lang.org/cargo/reference/manifest.html#the-readme-field).
+    # A plain string is used as-is.
+    readme = cargo_package.get("readme", "")
+    if readme is True:
+        readme = "README.md"
+    elif readme is False:
+        readme = ""
 
-    # Coerce all values to strings (TOML booleans like `readme = true` are common)
-    for key in cargo_env:
-        if not isinstance(cargo_env[key], str):
-            cargo_env[key] = str(cargo_env[key])
+    license_file = cargo_package.get("license-file", "")
+
+    # When readme or license-file are inherited from the workspace, Cargo rebases
+    # the path relative to the member package directory.
+    if args.workspace:
+        workspace_root = args.workspace.parent
+        if readme and "readme" in inherited_from_workspace:
+            readme = os.path.relpath(workspace_root / readme, args.vendor)
+        if license_file and "license-file" in inherited_from_workspace:
+            license_file = os.path.relpath(workspace_root / license_file, args.vendor)
+
+    cargo_env["CARGO_PKG_README"] = str(readme)
+    cargo_env["CARGO_PKG_LICENSE_FILE"] = str(license_file)
 
     def to_ascii_escaped(value: str) -> str:
         return value.encode("ascii", "backslashreplace").decode("ascii")

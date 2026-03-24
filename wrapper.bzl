@@ -25,6 +25,11 @@ def _patch_buildscript_env(**kwargs):
         "buckal//config/mode:release": "0",
         "DEFAULT": "1",
     }))
+    env.update(PROFILE=select({
+        "buckal//config/mode:debug": "debug",
+        "buckal//config/mode:release": "release",
+        "DEFAULT": "debug",
+    }))
     return env
 
 def rust_binary(name, **kwargs):

@@ -129,6 +129,7 @@ def _cargo_buildscript_impl(ctx: AnalysisContext) -> list[Provider]:
     env["OUT_DIR"] = out_dir.as_output()
     env["RUSTC"] = _make_rustc_shim(ctx, cwd)
     env["RUSTC_LINKER"] = "/bin/false"
+    env["RUSTDOC"] = cmd_args(toolchain_info.rustdoc, relative_to = cwd)
     env["RUST_BACKTRACE"] = "1"
     # Cargo sets this for build scripts, and some crates (e.g. tikv-jemalloc-sys)
     # expect it to be present. Defaulting is handled in the buildscript runner
