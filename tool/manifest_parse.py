@@ -68,12 +68,23 @@ def main() -> None:
         "homepage",
         "repository",
         "rust-version",
+        "license",
+        "license-file",
+        "readme",
     }
+    inherited_from_workspace = set()
     for key in workspace_package_key:
         value = cargo_package.get(key)
         if isinstance(value, dict) and value.get("workspace") is True:
             workspace_values = load_workspace_package()
-            cargo_package[key] = workspace_values.get(key)       
+            workspace_value = workspace_values.get(key)
+            if workspace_value is None:
+                raise ValueError(
+                    f"Workspace inheritance requested for key '{key}' but "
+                    f"'[workspace.package]' does not define it"
+                )
+            cargo_package[key] = workspace_value
+            inherited_from_workspace.add(key)
 
     # Parse semantic versioning
     semver_pattern = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$")
@@ -94,6 +105,38 @@ def main() -> None:
     cargo_env["CARGO_PKG_HOMEPAGE"] = cargo_package.get("homepage", "")
     cargo_env["CARGO_PKG_REPOSITORY"] = cargo_package.get("repository", "")
     cargo_env["CARGO_PKG_RUST_VERSION"] = cargo_package.get("rust-version", "")
+    cargo_env["CARGO_PKG_LICENSE"] = cargo_package.get("license", "")
+    # Cargo interprets `readme = true` as "README.md" and `readme = false` as ""
+    # (see https://doc.rust-lang.org/cargo/reference/manifest.html#the-readme-field).
+    # A plain string is used as-is.
+    readme = cargo_package.get("readme", "")
+    if readme is True:
+        readme = "README.md"
+    elif readme is False:
+        readme = ""
+
+    license_file = cargo_package.get("license-file", "")
+
+    # Emit absolute paths for readme and license-file so build scripts can
+    # locate the files regardless of their (synthetic) working directory.
+    # For workspace-inherited values the path is relative to the workspace root;
+    # for member-local values it is relative to the vendor directory.
+    # NOTE: args.workspace must point to the real workspace Cargo.toml (not a
+    # buck-out copy) for inherited paths to resolve correctly — ensure the
+    # cargo-buckal export_file rule uses mode = "reference".
+    if readme:
+        if "readme" in inherited_from_workspace and args.workspace:
+            readme = str((args.workspace.parent / readme).resolve())
+        else:
+            readme = str((TOOL_CWD / args.vendor / readme).resolve())
+    if license_file:
+        if "license-file" in inherited_from_workspace and args.workspace:
+            license_file = str((args.workspace.parent / license_file).resolve())
+        else:
+            license_file = str((TOOL_CWD / args.vendor / license_file).resolve())
+
+    cargo_env["CARGO_PKG_README"] = str(readme)
+    cargo_env["CARGO_PKG_LICENSE_FILE"] = str(license_file)
 
     def to_ascii_escaped(value: str) -> str:
         return value.encode("ascii", "backslashreplace").decode("ascii")

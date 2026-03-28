@@ -243,6 +243,7 @@ def main() -> None:  # noqa: C901
     env["OUT_DIR"] = os.path.abspath(out_dir)
 
     cwd = create_cwd(args.create_cwd, args.manifest_dir)
+
     env["CARGO_MANIFEST_DIR"] = os.path.abspath(cwd)
     # *BUCKAL-ONLY* set manifest path
     env["CARGO_MANIFEST_PATH"] = os.path.abspath(cwd / "Cargo.toml")
